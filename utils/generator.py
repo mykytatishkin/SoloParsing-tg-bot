@@ -29,8 +29,15 @@ def generate_phone_from_db():
     return str(row["Телефон"])
 
 def generate_quantity():
-    """Генерирует случайное количество из диапазона, указанного в настройках."""
+    """
+    Генерирует случайное количество с вероятностью 80% для 1 шт.
+    """
     settings = load_settings()
     min_quantity = settings.get("min_quantity", 1)
     max_quantity = settings.get("max_quantity", 8)
-    return str(random.randint(min_quantity, max_quantity))
+
+    if random.random() < 0.8:  # 80% вероятность
+        return str(min_quantity)  # Возвращаем минимальное количество (обычно 1)
+    else:
+        # Генерация случайного количества из оставшихся значений
+        return str(random.randint(min_quantity + 1, max_quantity))
