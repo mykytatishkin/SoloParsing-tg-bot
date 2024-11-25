@@ -11,6 +11,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium import webdriver
 import random
 import time
+from datetime import datetime, timedelta
 
 # Глобальный флаг для управления выполнением запросов
 stop_random_requests_flag = False
@@ -18,7 +19,7 @@ current_task = None  # Переменная для хранения текуще
 
 
 async def run_random_requests(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Выполняет случайные запросы бесконечно в течение дня с обновлением количества запросов каждый день."""
+    """Выполняет случайные запросы с обновлением количества запросов ровно в 00:00 следующего дня."""
     global stop_random_requests_flag
     stop_random_requests_flag = True  # Устанавливаем флаг перед запуском
 
@@ -43,10 +44,11 @@ async def run_random_requests(update: Update, context: ContextTypes.DEFAULT_TYPE
             total_requests = random.randint(min_requests, max_requests)
             await context.bot.send_message(
                 chat_id=update.effective_chat.id,
-                text=f"Executing {total_requests} random requests over the next 24 hours."
+                text=f"Starting a new day cycle at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}.\n"
+                     f"Total requests for today: {total_requests}"
             )
 
-            # Распределяем запросы случайно в течение дня
+            # Распределяем запросы случайно в течение суток
             seconds_in_a_day = 24 * 60 * 60
             time_slots = sorted(random.sample(range(seconds_in_a_day), total_requests))
 
@@ -59,20 +61,20 @@ async def run_random_requests(update: Update, context: ContextTypes.DEFAULT_TYPE
                     return
 
                 # Рассчитываем время ожидания до следующего слота
-                if i > 0:
-                    pause_time = slot - time_slots[i - 1]
-                else:
-                    # Для первого запроса ждем от начала дня
-                    now = time.time()
-                    start_of_day = int(now) - (int(now) % seconds_in_a_day)
-                    pause_time = slot - (int(now) - start_of_day)
-                    if pause_time < 0:
-                        pause_time = 0  # Если текущий слот уже прошел, пропускаем паузу
+                now = datetime.now()
+                midnight_today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+                slot_time = midnight_today + timedelta(seconds=slot)
+                pause_time = (slot_time - now).total_seconds()
+
+                # Если текущий слот уже прошел, пропускаем паузу
+                if pause_time < 0:
+                    continue
 
                 minutes_to_next_request = pause_time // 60
                 await context.bot.send_message(
                     chat_id=update.effective_chat.id,
-                    text=f"Next request will be executed in {minutes_to_next_request} minutes."
+                    text=f"Next request will be executed at {slot_time.strftime('%H:%M:%S')} "
+                         f"(in {minutes_to_next_request:.0f} minutes)."
                 )
 
                 # Ждем до следующего запроса
@@ -122,7 +124,7 @@ async def run_random_requests(update: Update, context: ContextTypes.DEFAULT_TYPE
 
                     await context.bot.send_message(
                         chat_id=update.effective_chat.id,
-                        text=f"Random request sent: Name - {name}, Phone - {phone}, Quantity - {quantity}"
+                        text=f"Random request sent:\nName: {name}\nPhone: {phone}\nQuantity: {quantity}"
                     )
 
                 except Exception as e:
@@ -131,12 +133,15 @@ async def run_random_requests(update: Update, context: ContextTypes.DEFAULT_TYPE
                         text=f"Error during random request execution: {e}"
                     )
 
-            # Пауза до следующего дня
+            # Ждем до следующего дня ровно в 00:00
+            now = datetime.now()
+            next_midnight = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+            seconds_to_next_day = (next_midnight - now).total_seconds()
             await context.bot.send_message(
                 chat_id=update.effective_chat.id,
-                text="All requests for today completed. Waiting for the next day..."
+                text="All requests for today completed. Waiting until 00:00 for the next cycle..."
             )
-            await asyncio.sleep(24 * 60 * 60)  # Ждем начала следующего дня
+            await asyncio.sleep(seconds_to_next_day)
 
     finally:
         if driver:
