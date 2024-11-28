@@ -1,8 +1,15 @@
 {
-    "url": "https://maapo.com.ua/product/mini-kamera",
+    "urls": [
+        "https://nazva33.shopiforge.com/admin/products/2476610/edit",
+        "https://nazva33.shopiforge.com/admin/products/2475806/edit",
+        "https://nazva33.shopiforge.com/product/21386-nalobniy-likhtar",
+        "https://nazva33.shopiforge.com/product/21386-elektrosusharka-dlya-vzuttya-protigribkova",
+        "https://nazva33.shopiforge.com/product/21386-navushniki-bezdrotovi",
+        "https://nazva33.shopiforge.com/product/21386-kamera-videosposterezhennya"
+    ],
     "dev_token": "8037890434:AAFtrh8MIghH_xKDNn-4bbZ3g8y9kVe_PQ8",
     "client_token": "7561937709:AAF4JDOrHpokdp4wG12Czrl51itQkjEkYQc",
-    "telegram_bot_token": "7561937709:AAF4JDOrHpokdp4wG12Czrl51itQkjEkYQc",
+    "telegram_bot_token": "8037890434:AAFtrh8MIghH_xKDNn-4bbZ3g8y9kVe_PQ8",
     "request_count": 13,
     "min_requests": 10,
     "max_requests": 100,

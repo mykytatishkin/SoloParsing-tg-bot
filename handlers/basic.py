@@ -9,7 +9,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         ["/stop_requests", "/stop_random_requests"],
         ["/set_min_requests", "/set_max_requests"],
         ["/set_min_quantity", "/set_max_quantity"],
-        ["/set_request_count", "/show_settings"]  # Добавлена кнопка для set_request_count
+        ["/set_request_count", "/show_settings"],
+        ["/add_url", "/list_urls"],
+        ["/remove_url", "/cancel"],  # Добавлены команды для работы с ссылками
     ]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     await update.message.reply_text(
@@ -20,9 +22,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def show_settings(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Показывает текущие настройки."""
     settings = load_settings()
+    urls = settings.get("urls", ["No URLs available"])
+    urls_text = "\n".join([f"{i+1}. {url}" for i, url in enumerate(urls)])
     await update.message.reply_text(
         f"Current settings:\n"
-        f"- URL: {settings['url']}\n"
+        f"- URLs:\n{urls_text}\n"
         f"- Request Count: {settings['request_count']}\n"
         f"- Min Requests: {settings['min_requests']}\n"
         f"- Max Requests: {settings['max_requests']}\n"

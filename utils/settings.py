@@ -5,7 +5,9 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 SETTINGS_PATH = os.path.join(BASE_DIR, "../settings.json")
 
 def load_settings():
-    """Загружает настройки из settings.json."""
+    """Загружает настройки из settings.json. Если файла нет, создаёт пустой."""
+    if not os.path.exists(SETTINGS_PATH):
+        save_settings({})
     with open(SETTINGS_PATH, "r") as file:
         return json.load(file)
 
