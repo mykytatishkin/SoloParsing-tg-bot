@@ -8,7 +8,6 @@ from selenium.webdriver.support.ui import Select, WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium import webdriver
 import random
-import time
 from datetime import datetime, timedelta
 
 # Глобальный флаг для управления выполнением запросов
@@ -54,10 +53,16 @@ async def run_random_requests(update: Update, context: ContextTypes.DEFAULT_TYPE
                      "\n".join([f"{url}: {count} requests" for url, count in daily_requests.items()])
             )
 
-            # Распределяем запросы случайно в течение суток для каждой ссылки
-            seconds_in_a_day = 24 * 60 * 60
+            # Распределяем запросы в течение суток с максимальным интервалом 2 часа
             for url, total_requests in daily_requests.items():
-                time_slots = sorted(random.sample(range(seconds_in_a_day), total_requests))
+                time_slots = []
+                current_time = 0  # Время с начала суток (в секундах)
+
+                for _ in range(total_requests):
+                    # Добавляем случайное время в пределах 2 часов (но не превышая 24 часа)
+                    next_time = current_time + random.randint(1, min(7200, 86400 - current_time))
+                    time_slots.append(next_time)
+                    current_time = next_time
 
                 for i, slot in enumerate(time_slots):
                     if not stop_random_requests_flag:
