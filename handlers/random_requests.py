@@ -1,5 +1,3 @@
-# random_requests.py
-
 import asyncio
 from telegram import Update
 from telegram.ext import CommandHandler, ContextTypes
@@ -10,7 +8,6 @@ from selenium.webdriver.support.ui import Select, WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium import webdriver
 import random
-import time
 from datetime import datetime, timedelta
 
 # Глобальный флаг для управления выполнением запросов
@@ -48,11 +45,7 @@ async def run_random_requests(update: Update, context: ContextTypes.DEFAULT_TYPE
                      f"Total requests for today: {total_requests}"
             )
 
-            # Распределяем запросы случайно в течение суток
-            seconds_in_a_day = 24 * 60 * 60
-            time_slots = sorted(random.sample(range(seconds_in_a_day), total_requests))
-
-            for i, slot in enumerate(time_slots):
+            for i in range(total_requests):
                 if not stop_random_requests_flag:
                     await context.bot.send_message(
                         chat_id=update.effective_chat.id,
@@ -60,24 +53,16 @@ async def run_random_requests(update: Update, context: ContextTypes.DEFAULT_TYPE
                     )
                     return
 
-                # Рассчитываем время ожидания до следующего слота
-                now = datetime.now()
-                midnight_today = now.replace(hour=0, minute=0, second=0, microsecond=0)
-                slot_time = midnight_today + timedelta(seconds=slot)
-                pause_time = (slot_time - now).total_seconds()
+                # Случайное время ожидания между запросами (от 1 секунды до 60 минут)
+                pause_time = random.randint(1, 3600)
 
-                # Если текущий слот уже прошел, пропускаем паузу
-                if pause_time < 0:
-                    continue
-
-                minutes_to_next_request = pause_time // 60
                 await context.bot.send_message(
                     chat_id=update.effective_chat.id,
-                    text=f"Next request will be executed at {slot_time.strftime('%H:%M:%S')} "
-                         f"(in {minutes_to_next_request:.0f} minutes)."
+                    text=f"Next request will be executed in {pause_time // 60} minutes "
+                         f"and {pause_time % 60} seconds."
                 )
 
-                # Ждем до следующего запроса
+                # Ожидание перед выполнением следующего запроса
                 elapsed_time = 0
                 while elapsed_time < pause_time:
                     if not stop_random_requests_flag:
