@@ -3,10 +3,7 @@ from telegram import Update
 from telegram.ext import CommandHandler, ContextTypes
 from utils.settings import load_settings
 from utils.generator import generate_name_from_db, generate_phone_from_db, generate_quantity
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import Select, WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium import webdriver
+from playwright.async_api import async_playwright
 import random
 from datetime import datetime
 
@@ -25,106 +22,85 @@ async def run_random_requests(update: Update, context: ContextTypes.DEFAULT_TYPE
     min_requests = settings["min_requests"]
     max_requests = settings["max_requests"]
 
-    options = webdriver.ChromeOptions()
-    options.add_argument("--headless")
-    options.add_argument("--disable-gpu")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
+    async with async_playwright() as playwright:
+        browser = await playwright.chromium.launch(headless=True)
+        context_browser = await browser.new_context()
+        page = await context_browser.new_page()
 
-    driver = None
-
-    try:
-        driver = webdriver.Chrome(options=options)
-
-        while stop_random_requests_flag:  # Бесконечный цикл выполнения
-            # Генерация нового числа запросов для текущего цикла
-            total_requests = random.randint(min_requests, max_requests)
-            await context.bot.send_message(
-                chat_id=update.effective_chat.id,
-                text=f"Starting a new cycle at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
-                     f"Total requests for this cycle: {total_requests}"
-            )
-
-            for i in range(total_requests):
-                if not stop_random_requests_flag:
-                    await context.bot.send_message(
-                        chat_id=update.effective_chat.id,
-                        text="Random requests stopped by user."
-                    )
-                    return
-
-                # Случайное время ожидания между запросами (от 1 секунды до 60 минут)
-                pause_time = random.randint(1, 3600)
-
+        try:
+            while stop_random_requests_flag:  # Бесконечный цикл выполнения
+                # Генерация нового числа запросов для текущего цикла
+                total_requests = random.randint(min_requests, max_requests)
                 await context.bot.send_message(
                     chat_id=update.effective_chat.id,
-                    text=f"Next request will be executed in {pause_time // 60} minutes "
-                         f"and {pause_time % 60} seconds."
+                    text=f"Starting a new cycle at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+                         f"Total requests for this cycle: {total_requests}"
                 )
 
-                # Ожидание перед выполнением следующего запроса
-                elapsed_time = 0
-                while elapsed_time < pause_time:
+                for i in range(total_requests):
                     if not stop_random_requests_flag:
                         await context.bot.send_message(
                             chat_id=update.effective_chat.id,
                             text="Random requests stopped by user."
                         )
                         return
-                    sleep_duration = min(10, pause_time - elapsed_time)
-                    await asyncio.sleep(sleep_duration)
-                    elapsed_time += sleep_duration
 
-                # Выполнение запроса
-                await context.bot.send_message(
-                    chat_id=update.effective_chat.id,
-                    text=f"Executing random request #{i + 1} for this cycle..."
-                )
-
-                try:
-                    driver.get(url)
-
-                    # Генерация и заполнение данных
-                    input_name = WebDriverWait(driver, 10).until(
-                        EC.presence_of_element_located((By.ID, 'full-name'))
-                    )
-                    input_phone = WebDriverWait(driver, 10).until(
-                        EC.presence_of_element_located((By.ID, 'phone'))
-                    )
-                    input_quantity = WebDriverWait(driver, 10).until(
-                        EC.presence_of_element_located((By.ID, 'qty'))
-                    )
-                    order_button = WebDriverWait(driver, 10).until(
-                        EC.element_to_be_clickable((By.XPATH, '//button[contains(text(), "Оформити замовлення")]'))
-                    )
-
-                    name = generate_name_from_db()
-                    phone = generate_phone_from_db()
-                    quantity = generate_quantity()
-
-                    input_name.send_keys(name)
-                    input_phone.send_keys(phone)
-                    Select(input_quantity).select_by_value(quantity)
-                    order_button.click()
+                    # Случайное время ожидания между запросами (от 1 секунды до 60 минут)
+                    pause_time = random.randint(1, 3600)
 
                     await context.bot.send_message(
                         chat_id=update.effective_chat.id,
-                        text=f"Random request sent:\nName: {name}\nPhone: {phone}\nQuantity: {quantity}"
+                        text=f"Next request will be executed in {pause_time // 60} minutes "
+                             f"and {pause_time % 60} seconds."
                     )
 
-                except Exception as e:
+                    # Ожидание перед выполнением следующего запроса
+                    elapsed_time = 0
+                    while elapsed_time < pause_time:
+                        if not stop_random_requests_flag:
+                            await context.bot.send_message(
+                                chat_id=update.effective_chat.id,
+                                text="Random requests stopped by user."
+                            )
+                            return
+                        sleep_duration = min(10, pause_time - elapsed_time)
+                        await asyncio.sleep(sleep_duration)
+                        elapsed_time += sleep_duration
+
+                    # Выполнение запроса
                     await context.bot.send_message(
                         chat_id=update.effective_chat.id,
-                        text=f"Error during random request execution: {e}"
+                        text=f"Executing random request #{i + 1} for this cycle..."
                     )
 
-    finally:
-        if driver:
-            driver.quit()
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text="Random requests execution finished."
-        )
+                    try:
+                        await page.goto(url)
+
+                        # Генерация и заполнение данных
+                        await page.fill('#full-name', generate_name_from_db())
+                        await page.fill('#phone', generate_phone_from_db())
+                        quantity = generate_quantity()
+                        await page.select_option('#qty', quantity)
+                        await page.click('//button[contains(text(), "Оформити замовлення")]')
+
+                        await context.bot.send_message(
+                            chat_id=update.effective_chat.id,
+                            text=f"Random request sent:\nName: {generate_name_from_db()}\n"
+                                 f"Phone: {generate_phone_from_db()}\nQuantity: {quantity}"
+                        )
+
+                    except Exception as e:
+                        await context.bot.send_message(
+                            chat_id=update.effective_chat.id,
+                            text=f"Error during random request execution: {e}"
+                        )
+
+        finally:
+            await browser.close()
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="Random requests execution finished."
+            )
 
 
 async def stop_random_requests(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
