@@ -8,7 +8,7 @@ from selenium.webdriver.support.ui import Select, WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium import webdriver
 import random
-from datetime import datetime, timedelta
+from datetime import datetime
 
 # Глобальный флаг для управления выполнением запросов
 stop_random_requests_flag = False
@@ -16,7 +16,7 @@ current_task = None  # Переменная для хранения текуще
 
 
 async def run_random_requests(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Выполняет случайные запросы с обновлением количества запросов ровно в 00:00 следующего дня."""
+    """Выполняет случайные запросы с обновлением количества запросов сразу после завершения цикла."""
     global stop_random_requests_flag
     stop_random_requests_flag = True  # Устанавливаем флаг перед запуском
 
@@ -37,12 +37,12 @@ async def run_random_requests(update: Update, context: ContextTypes.DEFAULT_TYPE
         driver = webdriver.Chrome(options=options)
 
         while stop_random_requests_flag:  # Бесконечный цикл выполнения
-            # Генерация нового числа запросов для текущего дня
+            # Генерация нового числа запросов для текущего цикла
             total_requests = random.randint(min_requests, max_requests)
             await context.bot.send_message(
                 chat_id=update.effective_chat.id,
-                text=f"Starting a new day cycle at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}.\n"
-                     f"Total requests for today: {total_requests}"
+                text=f"Starting a new cycle at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+                     f"Total requests for this cycle: {total_requests}"
             )
 
             for i in range(total_requests):
@@ -78,7 +78,7 @@ async def run_random_requests(update: Update, context: ContextTypes.DEFAULT_TYPE
                 # Выполнение запроса
                 await context.bot.send_message(
                     chat_id=update.effective_chat.id,
-                    text=f"Executing random request #{i + 1} for today..."
+                    text=f"Executing random request #{i + 1} for this cycle..."
                 )
 
                 try:
@@ -117,16 +117,6 @@ async def run_random_requests(update: Update, context: ContextTypes.DEFAULT_TYPE
                         chat_id=update.effective_chat.id,
                         text=f"Error during random request execution: {e}"
                     )
-
-            # Ждем до следующего дня ровно в 00:00
-            now = datetime.now()
-            next_midnight = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
-            seconds_to_next_day = (next_midnight - now).total_seconds()
-            await context.bot.send_message(
-                chat_id=update.effective_chat.id,
-                text="All requests for today completed. Waiting until 00:00 for the next cycle..."
-            )
-            await asyncio.sleep(seconds_to_next_day)
 
     finally:
         if driver:
