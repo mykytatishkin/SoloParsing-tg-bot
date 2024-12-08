@@ -6,130 +6,148 @@ from utils.generator import generate_name_from_db, generate_phone_from_db, gener
 from playwright.async_api import async_playwright
 import random
 from datetime import datetime, timedelta
+import httpx
 
 # Глобальный флаг для управления выполнением запросов
 stop_random_requests_flag = False
 current_task = None  # Переменная для хранения текущей задачи
 
 
+async def is_url_accessible(url):
+    """Проверяет доступность URL перед выполнением запросов."""
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url, timeout=10)
+            return response.status_code == 200
+    except Exception:
+        return False
+
+
 async def run_random_requests(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Выполняет случайные запросы с точным соблюдением расписания."""
+    """Выполняет случайные запросы с циклическим обновлением расписания."""
     global stop_random_requests_flag
     stop_random_requests_flag = True  # Устанавливаем флаг перед запуском
 
-    settings = load_settings()
-    url = settings["url"]
-    min_requests = settings["min_requests"]
-    max_requests = settings["max_requests"]
+    while stop_random_requests_flag:  # Добавляем цикл для непрерывного выполнения
+        settings = load_settings()
+        url = settings["url"]
+        min_requests = settings["min_requests"]
+        max_requests = settings["max_requests"]
 
-    try:
-        async with async_playwright() as playwright:
-            browser = await playwright.chromium.launch(headless=True)
-            context_browser = await browser.new_context()
-            page = await context_browser.new_page()
-
-            # Генерация общего числа запросов
-            total_requests = random.randint(min_requests, max_requests)
-
-            # Распределение запросов по времени
-            requests_in_night = int(total_requests * 0.3)  # 30% в ночное время
-            requests_in_day = total_requests - requests_in_night  # 70% в дневное время
-
-            now = datetime.now()
-            time_intervals = []
-
-            # Генерация времени для ночных запросов (00:00–07:00)
-            for _ in range(requests_in_night):
-                hours = random.randint(max(0, now.hour if now.hour < 7 else 0), 6)
-                minutes = random.randint(0, 59)
-                seconds = random.randint(0, 59)
-                if hours == now.hour:
-                    minutes = random.randint(now.minute, 59)
-                    if minutes == now.minute:
-                        seconds = random.randint(now.second, 59)
-                time_intervals.append(datetime(now.year, now.month, now.day, hours, minutes, seconds))
-
-            # Генерация времени для дневных запросов (07:00–23:59)
-            for _ in range(requests_in_day):
-                hours = random.randint(max(7, now.hour if now.hour >= 7 else 7), 23)
-                minutes = random.randint(0, 59)
-                seconds = random.randint(0, 59)
-                if hours == now.hour:
-                    minutes = random.randint(now.minute, 59)
-                    if minutes == now.minute:
-                        seconds = random.randint(now.second, 59)
-                time_intervals.append(datetime(now.year, now.month, now.day, hours, minutes, seconds))
-
-            # Сортируем временные интервалы
-            time_intervals.sort()
-            time_intervals_str = [time.strftime("%H:%M:%S") for time in time_intervals]
-
-            # Отправляем список временных интервалов пользователю
+        # Проверка доступности URL
+        if not await is_url_accessible(url):
             await context.bot.send_message(
                 chat_id=update.effective_chat.id,
-                text="Schedule of requests (starting from current time):\n" + "\n".join(time_intervals_str)
+                text=f"URL is not accessible: {url}. Please check the server."
             )
+            return
 
-            for target_time in time_intervals:
-                if not stop_random_requests_flag:
-                    await context.bot.send_message(
-                        chat_id=update.effective_chat.id,
-                        text="Random requests stopped by user."
-                    )
-                    return
+        try:
+            async with async_playwright() as playwright:
+                browser = await playwright.chromium.launch(headless=True)
+                context_browser = await browser.new_context(
+                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+                )
+                page = await context_browser.new_page()
+
+                # Генерация общего числа запросов
+                total_requests = random.randint(min_requests, max_requests)
+
+                # Распределение запросов по времени
+                requests_in_night = int(total_requests * 0.3)  # 30% в ночное время
+                requests_in_day = total_requests - requests_in_night  # 70% в дневное время
 
                 now = datetime.now()
-                if target_time < now:
-                    target_time += timedelta(days=1)
+                time_intervals = []
 
-                pause_time = (target_time - now).total_seconds()
+                # Генерация времени для ночных запросов (00:00–07:00)
+                for _ in range(requests_in_night):
+                    hours = random.randint(0, 6)
+                    minutes = random.randint(0, 59)
+                    seconds = random.randint(0, 59)
+                    target_time = datetime(now.year, now.month, now.day, hours, minutes, seconds)
+                    if target_time < now:  # Перенос на следующий день, если время прошло
+                        target_time += timedelta(days=1)
+                    time_intervals.append(target_time)
+
+                # Генерация времени для дневных запросов (07:00–23:59)
+                for _ in range(requests_in_day):
+                    hours = random.randint(7, 23)
+                    minutes = random.randint(0, 59)
+                    seconds = random.randint(0, 59)
+                    target_time = datetime(now.year, now.month, now.day, hours, minutes, seconds)
+                    if target_time < now:  # Перенос на следующий день, если время прошло
+                        target_time += timedelta(days=1)
+                    time_intervals.append(target_time)
+
+                # Сортируем временные интервалы
+                time_intervals.sort()
+                time_intervals_str = [time.strftime("%H:%M:%S") for time in time_intervals]
+
+                # Отправляем список временных интервалов пользователю
                 await context.bot.send_message(
                     chat_id=update.effective_chat.id,
-                    text=f"Next request will be executed at {target_time.strftime('%H:%M:%S')} "
-                         f"(in {int(pause_time // 60)} minutes and {int(pause_time % 60)} seconds)."
+                    text="Schedule of requests:\n" + "\n".join(time_intervals_str)
                 )
 
-                # Ждем до следующего запроса
-                await asyncio.sleep(pause_time)
+                for target_time in time_intervals:
+                    if not stop_random_requests_flag:
+                        await context.bot.send_message(
+                            chat_id=update.effective_chat.id,
+                            text="Random requests stopped by user."
+                        )
+                        return
 
-                # Выполнение запроса
-                await context.bot.send_message(
-                    chat_id=update.effective_chat.id,
-                    text="Executing request..."
-                )
+                    now = datetime.now()
+                    pause_time = (target_time - now).total_seconds()
+                    if pause_time > 0:
+                        await context.bot.send_message(
+                            chat_id=update.effective_chat.id,
+                            text=f"Next request at {target_time.strftime('%H:%M:%S')} "
+                                 f"(in {int(pause_time // 60)} minutes and {int(pause_time % 60)} seconds)."
+                        )
+                        await asyncio.sleep(pause_time)
 
-                try:
-                    await page.goto(url)
-
-                    # Генерация и заполнение данных
-                    await page.fill('#full-name', generate_name_from_db())
-                    await page.fill('#phone', generate_phone_from_db())
-                    quantity = generate_quantity()
-                    await page.select_option('#qty', quantity)
-                    await page.click('//button[contains(text(), "Оформити замовлення")]')
-
+                    # Выполнение запроса
                     await context.bot.send_message(
                         chat_id=update.effective_chat.id,
-                        text=f"Request sent:\nName: {generate_name_from_db()}\n"
-                             f"Phone: {generate_phone_from_db()}\nQuantity: {quantity}"
+                        text="Executing request..."
                     )
 
-                except Exception as e:
-                    await context.bot.send_message(
-                        chat_id=update.effective_chat.id,
-                        text=f"Error during request execution: {e}"
-                    )
+                    try:
+                        await page.goto(url, timeout=60000)  # Таймаут 60 секунд
 
-    except Exception as main_exception:
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text=f"Critical error: {main_exception}"
-        )
-    finally:
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text="Random requests execution finished."
-        )
+                        # Генерация и заполнение данных
+                        name = generate_name_from_db()
+                        phone = generate_phone_from_db()
+                        quantity = generate_quantity()
+                        await page.fill('#full-name', name)
+                        await page.fill('#phone', phone)
+                        await page.select_option('#qty', quantity)
+                        await page.click('//button[contains(text(), "Оформити замовлення")]')
+
+                        await context.bot.send_message(
+                            chat_id=update.effective_chat.id,
+                            text=f"Request sent:\nName: {name}\nPhone: {phone}\nQuantity: {quantity}"
+                        )
+
+                    except Exception as e:
+                        await context.bot.send_message(
+                            chat_id=update.effective_chat.id,
+                            text=f"Error during request execution: {repr(e)}"
+                        )
+
+        except Exception as main_exception:
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text=f"Critical error during request execution: {repr(main_exception)}"
+            )
+            break  # Останавливаем цикл при критической ошибке
+        finally:
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="Random requests execution finished. Restarting..."
+            )
 
 
 async def stop_random_requests(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
