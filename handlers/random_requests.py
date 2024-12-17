@@ -58,31 +58,40 @@ async def run_random_requests(update: Update, context: ContextTypes.DEFAULT_TYPE
                 requests_in_day = total_requests - requests_in_night  # 70% в дневное время
 
                 now = datetime.now()
+                end_of_day = datetime(now.year, now.month, now.day, 23, 59, 59)
                 time_intervals = []
 
-                # Генерация времени для ночных запросов (00:00–07:00)
+                # Генерация времени для ночных запросов (00:00–07:00) до конца текущего дня
                 for _ in range(requests_in_night):
                     hours = random.randint(0, 6)
                     minutes = random.randint(0, 59)
                     seconds = random.randint(0, 59)
                     target_time = datetime(now.year, now.month, now.day, hours, minutes, seconds)
-                    if target_time < now:  # Перенос на следующий день, если время прошло
-                        target_time += timedelta(days=1)
+                    if target_time <= now or target_time > end_of_day:  # Ограничиваем конец дня
+                        continue
                     time_intervals.append(target_time)
 
-                # Генерация времени для дневных запросов (07:00–23:59)
+                # Генерация времени для дневных запросов (07:00–23:59) до конца текущего дня
                 for _ in range(requests_in_day):
                     hours = random.randint(7, 23)
                     minutes = random.randint(0, 59)
                     seconds = random.randint(0, 59)
                     target_time = datetime(now.year, now.month, now.day, hours, minutes, seconds)
-                    if target_time < now:  # Перенос на следующий день, если время прошло
-                        target_time += timedelta(days=1)
+                    if target_time <= now or target_time > end_of_day:  # Ограничиваем конец дня
+                        continue
                     time_intervals.append(target_time)
 
                 # Сортируем временные интервалы
                 time_intervals.sort()
                 time_intervals_str = [time.strftime("%H:%M:%S") for time in time_intervals]
+
+                # Проверяем, есть ли запросы до конца дня
+                if not time_intervals:
+                    await context.bot.send_message(
+                        chat_id=update.effective_chat.id,
+                        text="No more requests scheduled for today. Next schedule will appear at 00:00."
+                    )
+                    return  # Завершаем выполнение текущего цикла
 
                 # Отправляем список временных интервалов пользователю
                 await context.bot.send_message(
