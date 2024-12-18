@@ -2,10 +2,10 @@
     "url": "https://maapo.com.ua/product/mini-kamera",
     "dev_token": "8037890434:AAFtrh8MIghH_xKDNn-4bbZ3g8y9kVe_PQ8",
     "client_token": "7561937709:AAF4JDOrHpokdp4wG12Czrl51itQkjEkYQc",
-    "telegram_bot_token": "7561937709:AAF4JDOrHpokdp4wG12Czrl51itQkjEkYQc",
+    "telegram_bot_token": "8037890434:AAFtrh8MIghH_xKDNn-4bbZ3g8y9kVe_PQ8",
     "request_count": 13,
-    "min_requests": 10,
-    "max_requests": 100,
+    "min_requests": 15,
+    "max_requests": 21,
     "min_quantity": 1,
     "max_quantity": 3
 }
