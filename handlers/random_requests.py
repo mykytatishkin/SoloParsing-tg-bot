@@ -106,12 +106,15 @@ async def run_random_requests(update: Update, context: ContextTypes.DEFAULT_TYPE
 
                     try:
                         await page.goto(url, timeout=60000)
+                        await page.wait_for_selector('#full-name', timeout=30000)
                         name = generate_name_from_db()
                         phone = generate_phone_from_db()
                         quantity = generate_quantity()
+
                         await page.fill('#full-name', name)
                         await page.fill('#phone', phone)
                         await page.select_option('#qty', quantity)
+                        await page.wait_for_selector('//button[contains(text(), "Оформити замовлення")]', timeout=30000)
                         await page.click('//button[contains(text(), "Оформити замовлення")]')
 
                         await context.bot.send_message(
