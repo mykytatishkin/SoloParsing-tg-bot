@@ -1,19 +1,20 @@
 import asyncio
-from telegram import Update
-from telegram.ext import CommandHandler, ContextTypes
-from utils.settings import load_settings
-from utils.generator import generate_name_from_db, generate_phone_from_db, generate_quantity
-from playwright.async_api import async_playwright
 import random
+import httpx
 from datetime import datetime, timedelta
 from pytz import timezone
-import httpx
 from asyncio import Semaphore
+from telegram import Update
+from telegram.ext import CommandHandler, ContextTypes
+from playwright.async_api import async_playwright
+from utils.settings import load_settings
+from utils.generator import generate_name_from_db, generate_phone_from_db, generate_quantity
 
 # Глобальный флаг для управления выполнением запросов
 stop_random_requests_flag = False
-current_task = None  # Переменная для хранения текущей задачи
+running_task = None  # Переменная для хранения фоновой задачи
 semaphore = Semaphore(3)  # Ограничиваем количество одновременных задач
+KYIV_TZ = timezone("Europe/Kiev")  # Часовой пояс Киев
 
 
 async def is_url_accessible(url):
@@ -26,101 +27,33 @@ async def is_url_accessible(url):
         return False
 
 
-async def run_random_requests(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    global stop_random_requests_flag
-    stop_random_requests_flag = True  # Устанавливаем флаг перед запуском
+def generate_schedule(request_count):
+    """Генерация расписания запросов начиная с текущего времени (по Киеву)."""
+    now_kyiv = datetime.now(KYIV_TZ)  # Текущее время в Киеве
+    night_count = int(request_count * 0.3)
+    day_count = request_count - night_count
 
-    kyiv_tz = timezone("Europe/Kiev")  # Часовой пояс Киев
-    while stop_random_requests_flag:
-        settings = load_settings()
-        url = settings["url"]
-        min_requests = settings["min_requests"]
-        max_requests = settings["max_requests"]
+    night_intervals = [
+        now_kyiv + timedelta(seconds=random.randint(0, 7 * 3600))
+        for _ in range(night_count)
+    ]
+    day_intervals = [
+        now_kyiv + timedelta(seconds=random.randint(7 * 3600, 23 * 3600 + 59 * 60))
+        for _ in range(day_count)
+    ]
 
-        if not await is_url_accessible(url):
-            await context.bot.send_message(
-                chat_id=update.effective_chat.id,
-                text=f"URL is not accessible: {url}. Please check the server."
-            )
-            return
+    full_schedule = sorted(night_intervals + day_intervals)
+    return full_schedule
 
-        try:
-            total_requests = random.randint(min_requests, max_requests)
-            requests_in_night = int(total_requests * 0.3)
-            requests_in_day = total_requests - requests_in_night
 
-            now = datetime.now(kyiv_tz)
-            time_intervals = []
-
-            for _ in range(requests_in_night):
-                hours = random.randint(0, 6)
-                minutes = random.randint(0, 59)
-                seconds = random.randint(0, 59)
-                target_time = kyiv_tz.localize(datetime(now.year, now.month, now.day, hours, minutes, seconds))
-                if target_time < now:
-                    target_time += timedelta(days=1)
-                time_intervals.append(target_time)
-
-            for _ in range(requests_in_day):
-                hours = random.randint(7, 23)
-                minutes = random.randint(0, 59)
-                seconds = random.randint(0, 59)
-                target_time = kyiv_tz.localize(datetime(now.year, now.month, now.day, hours, minutes, seconds))
-                if target_time < now:
-                    target_time += timedelta(days=1)
-                time_intervals.append(target_time)
-
-            time_intervals.sort()
-            time_intervals_str = [time.astimezone(kyiv_tz).strftime("%H:%M:%S") for time in time_intervals]
-
-            await context.bot.send_message(
-                chat_id=update.effective_chat.id,
-                text="Schedule of requests (Kyiv Time):\n" + "\n".join(time_intervals_str)
-            )
-
-            async with async_playwright() as playwright:
-                browser = await playwright.chromium.launch(
-                    headless=True,
-                    args=["--disable-gpu", "--no-sandbox", "--disable-dev-shm-usage"]
-                )
-
-                for target_time in time_intervals:
-                    if not stop_random_requests_flag:
-                        await context.bot.send_message(
-                            chat_id=update.effective_chat.id,
-                            text="Random requests stopped by user."
-                        )
-                        return
-
-                    now = datetime.now(kyiv_tz)
-                    pause_time = (target_time - now).total_seconds()
-                    if pause_time > 0:
-                        await context.bot.send_message(
-                            chat_id=update.effective_chat.id,
-                            text=f"Next request at {target_time.strftime('%H:%M:%S')} "
-                                 f"(in {int(pause_time // 60)} minutes and {int(pause_time % 60)} seconds)."
-                        )
-                        await asyncio.sleep(pause_time)
-
-                    await context.bot.send_message(
-                        chat_id=update.effective_chat.id,
-                        text="Executing request..."
-                    )
-
-                    try:
-                        await execute_request(browser, url, context, update)
-                    except Exception as e:
-                        await context.bot.send_message(
-                            chat_id=update.effective_chat.id,
-                            text=f"Error during request execution: {repr(e)}"
-                        )
-
-        except Exception as main_exception:
-            await context.bot.send_message(
-                chat_id=update.effective_chat.id,
-                text=f"Critical error during request execution: {repr(main_exception)}"
-            )
-            break
+async def async_wait_until(target_time):
+    """Функция ожидания точного времени запроса"""
+    while True:
+        now_kyiv = datetime.now(KYIV_TZ)
+        delay = (target_time - now_kyiv).total_seconds()
+        if delay <= 0:
+            break  # Если уже наступило время — отправляем запрос
+        await asyncio.sleep(min(60, delay))  # Ждать максимум 60 секунд за раз
 
 
 async def execute_request(browser, url, context, update):
@@ -135,11 +68,6 @@ async def execute_request(browser, url, context, update):
         try:
             await page.goto(url, timeout=60000)
             await page.wait_for_load_state("networkidle")
-
-            # Убедимся, что элемент виден
-            element = await page.wait_for_selector("#full-name", timeout=30000)
-            if not await element.is_visible():
-                raise Exception("Element #full-name found, but not visible!")
 
             # Ввод данных
             name = generate_name_from_db()
@@ -164,10 +92,69 @@ async def execute_request(browser, url, context, update):
             await context_browser.close()
 
 
+async def run_random_requests(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Функция запуска случайных запросов"""
+    global stop_random_requests_flag
+    stop_random_requests_flag = False  # Устанавливаем флаг перед запуском
+
+    settings = load_settings()
+    url = settings.get("url")  # Одна ссылка
+    min_requests = settings["min_requests"]
+    max_requests = settings["max_requests"]
+
+    if not url:
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="No URL provided in settings. Please add a URL."
+        )
+        return
+
+    if not await is_url_accessible(url):
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=f"URL is not accessible: {url}. Please check the server."
+        )
+        return
+
+    try:
+        total_requests = random.randint(min_requests, max_requests)
+        schedule = generate_schedule(total_requests)  # Генерация расписания
+
+        schedule_str = "\n".join(time.strftime("%H:%M:%S") for time in schedule)
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="Schedule of requests (Kyiv Time):\n" + schedule_str
+        )
+
+        async with async_playwright() as playwright:
+            browser = await playwright.chromium.launch(
+                headless=True,
+                args=["--disable-gpu", "--no-sandbox", "--disable-dev-shm-usage"]
+            )
+
+            for target_time in schedule:
+                if stop_random_requests_flag:
+                    return  # Выход, если бот остановлен
+
+                await async_wait_until(target_time)
+                await execute_request(browser, url, context, update)
+
+    except Exception as e:
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=f"Critical error during request execution: {repr(e)}"
+        )
+
+
 async def stop_random_requests(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Останавливает выполнение случайных запросов."""
-    global stop_random_requests_flag
-    stop_random_requests_flag = False  # Устанавливаем флаг остановки
+    global stop_random_requests_flag, running_task
+    stop_random_requests_flag = True  # Устанавливаем флаг остановки
+
+    if running_task and not running_task.done():
+        running_task.cancel()  # Отменяем задачу, если она выполняется
+        running_task = None
+
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
         text="Random requests have been stopped."
@@ -175,9 +162,17 @@ async def stop_random_requests(update: Update, context: ContextTypes.DEFAULT_TYP
 
 
 async def handle_random_requests(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Обработчик запуска случайных запросов."""
-    global current_task
-    current_task = asyncio.create_task(run_random_requests(update, context))
+    """Запуск run_random_requests в фоне"""
+    global running_task
+
+    if running_task and not running_task.done():
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="Random requests are already running!"
+        )
+        return
+
+    running_task = asyncio.create_task(run_random_requests(update, context))
 
 
 def get_random_request_handlers():
