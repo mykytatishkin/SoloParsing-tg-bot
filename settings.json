@@ -1,5 +1,7 @@
 {
-    "url": "https://maapo.com.ua/product/mini-kamera",
+    "urls": [
+         "https://maapo.com.ua/product/mini-kamera"
+],
     "dev_token": "8037890434:AAFtrh8MIghH_xKDNn-4bbZ3g8y9kVe_PQ8",
     "client_token": "7561937709:AAF4JDOrHpokdp4wG12Czrl51itQkjEkYQc",
     "telegram_bot_token": "7561937709:AAF4JDOrHpokdp4wG12Czrl51itQkjEkYQc",
