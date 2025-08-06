@@ -22,7 +22,7 @@ async def show_settings(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     settings = load_settings()
     await update.message.reply_text(
         f"Current settings:\n"
-        f"- URL: {settings['url']}\n"
+        f"- URLs: {settings['urls']}\n"
         f"- Request Count: {settings['request_count']}\n"
         f"- Min Requests: {settings['min_requests']}\n"
         f"- Max Requests: {settings['max_requests']}\n"

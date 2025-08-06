@@ -19,7 +19,7 @@ async def run_requests(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     stop_requests_flag = True  # Устанавливаем флаг перед запуском
 
     settings = load_settings()
-    url = settings["url"]
+    url = settings["urls"][0]  # Берем первый URL из массива
     request_count = settings["request_count"]
 
     # Настройки Selenium WebDriver
