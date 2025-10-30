@@ -13,22 +13,76 @@ KYIV_TZ = pytz.timezone("Europe/Kiev")
 
 
 def generate_schedule(request_count):
-    """Генерация расписания запросов начиная с текущего времени (по Киеву)."""
+    """Генерация расписания запросов начиная с текущего времени (по Киеву).
+
+    Базовый алгоритм сохранён: 30% заказов ночью (0..7 часов от текущего момента),
+    70% — днём (7:00..23:59 от текущего момента).
+
+    Для дневных заказов добавлено ограничение: разница между соседними дневными
+    заказами случайная, но не менее 1 минуты и не более 2 часов.
+    """
     now_kyiv = datetime.now(KYIV_TZ)  # Текущее время в Киеве
 
     night_count = int(request_count * 0.3)
     day_count = request_count - night_count
 
+    # Ночные интервалы — как раньше: от сейчас до +7 часов
     night_intervals = [
         now_kyiv + timedelta(seconds=random.randint(0, 7 * 3600))
         for _ in range(night_count)
     ]
-    day_intervals = [
+
+    # Дневное окно
+    day_start = now_kyiv + timedelta(seconds=7 * 3600)
+    day_end = now_kyiv + timedelta(seconds=23 * 3600 + 59 * 60)
+
+    # Сначала генерируем дневные точки как раньше (равномерно по окну),
+    # затем упорядочиваем и корректируем, чтобы соседние дневные шли с шагом 1м..2ч
+    raw_day_intervals = [
         now_kyiv + timedelta(seconds=random.randint(7 * 3600, 23 * 3600 + 59 * 60))
         for _ in range(day_count)
     ]
+    day_intervals_sorted = sorted(raw_day_intervals)
 
-    full_schedule = sorted(night_intervals + day_intervals)
+    adjusted_day_intervals = []
+    prev_day_time = None
+    for t in day_intervals_sorted:
+        # Приводим в границы дневного окна
+        if t < day_start:
+            t = day_start
+        if t > day_end:
+            t = day_end
+
+        if prev_day_time is None:
+            # Первую дневную точку оставляем (в пределах окна)
+            adjusted = t
+        else:
+            min_step = 60  # 1 минута
+            max_step = 2 * 60 * 60  # 2 часа
+
+            # Минимально допустимое и максимально допустимое время
+            min_allowed = prev_day_time + timedelta(seconds=min_step)
+            max_allowed = prev_day_time + timedelta(seconds=max_step)
+
+            # Если исходная точка t слишком рано — сдвигаем вверх до min_allowed
+            if t < min_allowed:
+                t = min_allowed
+
+            # Если всё ещё выходит за максимум — выбираем случайный шаг в диапазоне
+            if t > max_allowed:
+                step = random.randint(min_step, max_step)
+                t = prev_day_time + timedelta(seconds=step)
+
+            # Гарантируем, что не выйдем за пределы дневного окна
+            if t > day_end:
+                t = day_end
+
+            adjusted = t
+
+        adjusted_day_intervals.append(adjusted)
+        prev_day_time = adjusted
+
+    full_schedule = sorted(night_intervals + adjusted_day_intervals)
     return full_schedule
 
 
