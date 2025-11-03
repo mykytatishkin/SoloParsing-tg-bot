@@ -6,5 +6,6 @@
     "min_requests": 15,
     "max_requests": 21,
     "min_quantity": 1,
-    "max_quantity": 3
+    "max_quantity": 3,
+    "status_group_chat_id": null
 }

@@ -4,6 +4,7 @@ from telegram import Update
 from telegram.ext import CommandHandler, ContextTypes
 from utils.settings import load_settings
 from utils.generator import generate_name_from_db, generate_phone_from_db, generate_quantity
+from utils.cycle_status import cycle_status
 import random
 from datetime import datetime, timedelta
 from playwright.async_api import async_playwright
@@ -105,8 +106,30 @@ async def process_url(url, url_number, update, context, min_requests, max_reques
 
         try:
             while True:
+                if stop_random_requests_flag:
+                    break
+                    
                 requests_count = random.randint(min_requests, max_requests)
                 schedule = generate_schedule(requests_count)  # Генерация расписания
+
+                # Обновляем статус цикла при запуске нового цикла
+                if schedule:
+                    # Находим следующее время обновления (следующий запрос в расписании)
+                    now_kyiv = datetime.now(KYIV_TZ)
+                    next_request_time = None
+                    for request_time in schedule:
+                        if request_time > now_kyiv:
+                            next_request_time = request_time
+                            break
+                    
+                    # Обновляем общий статус
+                    # Добавляем количество запросов для текущего URL к общему количеству
+                    cycle_status.total_requests += requests_count
+                    
+                    # Обновляем время следующего запроса (берем самое раннее)
+                    if next_request_time:
+                        if cycle_status.next_update_time is None or next_request_time < cycle_status.next_update_time:
+                            cycle_status.update_next_update_time(next_request_time)
 
                 # Форматируем расписание в строку
                 schedule_str = "\n".join(time.strftime("%H:%M:%S") for time in schedule)
@@ -122,7 +145,13 @@ async def process_url(url, url_number, update, context, min_requests, max_reques
                 )
 
                 for i, request_time in enumerate(schedule):
+                    if stop_random_requests_flag:
+                        break
+                    
                     await async_wait_until(request_time)
+                    
+                    if stop_random_requests_flag:
+                        break
 
                     # Выполнение запроса
                     await page.goto(url)
@@ -131,6 +160,16 @@ async def process_url(url, url_number, update, context, min_requests, max_reques
                     quantity = generate_quantity()
                     await page.select_option('#qty', quantity)
                     await page.click('//button[contains(text(), "Оформити замовлення")]')
+
+                    # Обновляем счетчик выполненных запросов
+                    cycle_status.increment_completed()
+                    
+                    # Обновляем время следующего запроса (берем самое раннее из всех URL)
+                    next_request_idx = i + 1
+                    if next_request_idx < len(schedule):
+                        next_time = schedule[next_request_idx]
+                        if cycle_status.next_update_time is None or next_time < cycle_status.next_update_time:
+                            cycle_status.update_next_update_time(next_time)
 
                     await context.bot.send_message(
                         chat_id=update.effective_chat.id,
@@ -158,6 +197,11 @@ async def run_random_requests(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
         return
 
+    # Сбрасываем статус перед запуском нового цикла
+    now_kyiv = datetime.now(KYIV_TZ)
+    # Инициализируем цикл с нулевым количеством - оно будет обновляться в process_url
+    cycle_status.start_cycle(0, now_kyiv)
+
     loop = asyncio.get_running_loop()
     for i, url in enumerate(urls):
         loop.create_task(process_url(url, i + 1, update, context, min_requests, max_requests))
@@ -167,6 +211,7 @@ async def stop_random_requests(update: Update, context: ContextTypes.DEFAULT_TYP
     """Команда для остановки работы"""
     global stop_random_requests_flag
     stop_random_requests_flag = True
+    cycle_status.stop_cycle()
 
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
