@@ -99,85 +99,162 @@ async def async_wait_until(target_time):
 
 async def process_url(url, url_number, update, context, min_requests, max_requests):
     """Обработчик запросов к URL"""
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
-        context_browser = await browser.new_context()
-        page = await context_browser.new_page()
-
-        try:
-            while True:
-                if stop_random_requests_flag:
-                    break
+    browser = None
+    try:
+        async with async_playwright() as p:
+            try:
+                # Простой запуск браузера без лишних аргументов
+                browser = await p.chromium.launch(headless=True)
                     
-                requests_count = random.randint(min_requests, max_requests)
-                schedule = generate_schedule(requests_count)  # Генерация расписания
+            except Exception as e:
+                error_msg = f"Ошибка запуска браузера для URL #{url_number}: {str(e)}"
+                print(error_msg)
+                # Дополнительная информация об ошибке
+                try:
+                    import traceback
+                    print(f"Полный traceback:\n{traceback.format_exc()}")
+                except Exception:
+                    pass
+                try:
+                    await context.bot.send_message(
+                        chat_id=update.effective_chat.id,
+                        text=f"❌ {error_msg}\n\nПопробуйте установить браузеры:\npython3 -m playwright install chromium"
+                    )
+                except Exception:
+                    pass
+                return
+            
+            try:
+                context_browser = await browser.new_context()
+                page = await context_browser.new_page()
+            except Exception as e:
+                error_msg = f"Ошибка создания страницы для URL #{url_number}: {str(e)}"
+                print(error_msg)
+                try:
+                    await context.bot.send_message(
+                        chat_id=update.effective_chat.id,
+                        text=f"❌ {error_msg}"
+                    )
+                except Exception:
+                    pass
+                if browser:
+                    try:
+                        await browser.close()
+                    except Exception:
+                        pass
+                return
 
-                # Обновляем статус цикла при запуске нового цикла
-                if schedule:
-                    # Находим следующее время обновления (следующий запрос в расписании)
-                    now_kyiv = datetime.now(KYIV_TZ)
-                    next_request_time = None
-                    for request_time in schedule:
-                        if request_time > now_kyiv:
-                            next_request_time = request_time
-                            break
-                    
-                    # Обновляем общий статус
-                    # Добавляем количество запросов для текущего URL к общему количеству
-                    cycle_status.total_requests += requests_count
-                    
-                    # Обновляем время следующего запроса (берем самое раннее)
-                    if next_request_time:
-                        if cycle_status.next_update_time is None or next_request_time < cycle_status.next_update_time:
-                            cycle_status.update_next_update_time(next_request_time)
-
-                # Форматируем расписание в строку
-                schedule_str = "\n".join(time.strftime("%H:%M:%S") for time in schedule)
-
-                await context.bot.send_message(
-                    chat_id=update.effective_chat.id,
-                    text=f"Schedule of requests for URL #{url_number} (Kyiv Time):\n{schedule_str}"
-                )
-
-                await context.bot.send_message(
-                    chat_id=update.effective_chat.id,
-                    text=f"Starting requests for URL #{url_number} ({url}). {requests_count} requests will be sent at scheduled times."
-                )
-
-                for i, request_time in enumerate(schedule):
+            try:
+                while True:
                     if stop_random_requests_flag:
                         break
-                    
-                    await async_wait_until(request_time)
-                    
-                    if stop_random_requests_flag:
-                        break
+                        
+                    requests_count = random.randint(min_requests, max_requests)
+                    schedule = generate_schedule(requests_count)  # Генерация расписания
 
-                    # Выполнение запроса
-                    await page.goto(url)
-                    await page.fill('#full-name', generate_name_from_db())
-                    await page.fill('#phone', generate_phone_from_db())
-                    quantity = generate_quantity()
-                    await page.select_option('#qty', quantity)
-                    await page.click('//button[contains(text(), "Оформити замовлення")]')
+                    # Обновляем статус цикла при запуске нового цикла
+                    if schedule:
+                        # Находим следующее время обновления (следующий запрос в расписании)
+                        now_kyiv = datetime.now(KYIV_TZ)
+                        next_request_time = None
+                        for request_time in schedule:
+                            if request_time > now_kyiv:
+                                next_request_time = request_time
+                                break
+                        
+                        # Обновляем общий статус
+                        # Добавляем количество запросов для текущего URL к общему количеству
+                        cycle_status.total_requests += requests_count
+                        
+                        # Обновляем время следующего запроса (берем самое раннее)
+                        if next_request_time:
+                            if cycle_status.next_update_time is None or next_request_time < cycle_status.next_update_time:
+                                cycle_status.update_next_update_time(next_request_time)
 
-                    # Обновляем счетчик выполненных запросов
-                    cycle_status.increment_completed()
-                    
-                    # Обновляем время следующего запроса (берем самое раннее из всех URL)
-                    next_request_idx = i + 1
-                    if next_request_idx < len(schedule):
-                        next_time = schedule[next_request_idx]
-                        if cycle_status.next_update_time is None or next_time < cycle_status.next_update_time:
-                            cycle_status.update_next_update_time(next_time)
+                    # Форматируем расписание в строку
+                    schedule_str = "\n".join(time.strftime("%H:%M:%S") for time in schedule)
 
                     await context.bot.send_message(
                         chat_id=update.effective_chat.id,
-                        text=f"Request {i + 1}/{requests_count} sent for URL #{url_number} ({url})."
+                        text=f"Schedule of requests for URL #{url_number} (Kyiv Time):\n{schedule_str}"
                     )
 
-        finally:
-            await browser.close()
+                    await context.bot.send_message(
+                        chat_id=update.effective_chat.id,
+                        text=f"Starting requests for URL #{url_number} ({url}). {requests_count} requests will be sent at scheduled times."
+                    )
+
+                    for i, request_time in enumerate(schedule):
+                        if stop_random_requests_flag:
+                            break
+                        
+                        await async_wait_until(request_time)
+                        
+                        if stop_random_requests_flag:
+                            break
+
+                        try:
+                            # Выполнение запроса
+                            await page.goto(url, timeout=30000)
+                            await page.fill('#full-name', generate_name_from_db())
+                            await page.fill('#phone', generate_phone_from_db())
+                            quantity = generate_quantity()
+                            await page.select_option('#qty', quantity)
+                            await page.click('//button[contains(text(), "Оформити замовлення")]')
+
+                            # Обновляем счетчик выполненных запросов
+                            cycle_status.increment_completed()
+                            
+                            # Обновляем время следующего запроса (берем самое раннее из всех URL)
+                            next_request_idx = i + 1
+                            if next_request_idx < len(schedule):
+                                next_time = schedule[next_request_idx]
+                                if cycle_status.next_update_time is None or next_time < cycle_status.next_update_time:
+                                    cycle_status.update_next_update_time(next_time)
+
+                            await context.bot.send_message(
+                                chat_id=update.effective_chat.id,
+                                text=f"Request {i + 1}/{requests_count} sent for URL #{url_number} ({url})."
+                            )
+                        except Exception as e:
+                            error_msg = f"Ошибка при выполнении запроса {i + 1}/{requests_count} для URL #{url_number}: {str(e)}"
+                            print(error_msg)
+                            try:
+                                await context.bot.send_message(
+                                    chat_id=update.effective_chat.id,
+                                    text=f"❌ {error_msg}"
+                                )
+                            except Exception:
+                                pass
+                            # Продолжаем выполнение следующих запросов
+                            continue
+
+            except Exception as e:
+                error_msg = f"Ошибка в цикле обработки URL #{url_number}: {str(e)}"
+                print(error_msg)
+                try:
+                    await context.bot.send_message(
+                        chat_id=update.effective_chat.id,
+                        text=f"❌ {error_msg}"
+                    )
+                except Exception:
+                    pass
+            finally:
+                if browser:
+                    try:
+                        await browser.close()
+                    except Exception as e:
+                        print(f"Ошибка при закрытии браузера для URL #{url_number}: {str(e)}")
+    except Exception as e:
+        error_msg = f"Критическая ошибка при обработке URL #{url_number}: {str(e)}"
+        print(error_msg)
+        try:
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text=f"❌ {error_msg}"
+            )
+        except Exception:
+            pass
 
 
 async def run_random_requests(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

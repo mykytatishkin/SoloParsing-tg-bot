@@ -18,8 +18,21 @@ def main():
         return
 
     try:
-        # Создаем экземпляр приложения
+        # Создаем экземпляр приложения с настройками для обработки сетевых ошибок
         application = Application.builder().token(token).build()
+        
+        # Настраиваем обработку ошибок сети
+        from telegram.error import NetworkError, TimedOut
+        
+        async def error_handler(update, context):
+            """Обработчик ошибок"""
+            error = context.error
+            if isinstance(error, (NetworkError, TimedOut)):
+                print(f"⚠️ Сетевая ошибка: {error}. Переподключение...")
+                return
+            print(f"❌ Ошибка: {error}")
+        
+        application.add_error_handler(error_handler)
 
         # Добавляем обработчики
         application.add_handlers(get_basic_handlers())  # Базовые команды (/start, /menu)
@@ -39,12 +52,18 @@ def main():
 
     # Запускаем бота
     try:
-        application.run_polling()
+        application.run_polling(
+            allowed_updates=["message", "callback_query"],
+            drop_pending_updates=True,
+            close_loop=False
+        )
     except KeyboardInterrupt:
         print("\nStopping bot...")
         scheduler.shutdown(wait=False)
     except Exception as e:
         print(f"Error while running the bot: {e}")
+        import traceback
+        print(f"Traceback:\n{traceback.format_exc()}")
         scheduler.shutdown(wait=False)
 
 if __name__ == "__main__":

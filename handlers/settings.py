@@ -1,7 +1,7 @@
 from telegram import Update
 from telegram.ext import CommandHandler, MessageHandler, filters, ConversationHandler, ContextTypes
 from utils.settings import load_settings, save_settings
-from utils.status_scheduler import send_status_manually
+from utils.status_scheduler import send_status_manually, send_cycle_report_manually
 
 # Определяем состояние
 NEW_VALUE = 0
@@ -124,6 +124,26 @@ async def test_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     else:
         await update.message.reply_text(f"❌ {message}")
 
+
+async def test_cycle_report(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Тестовая отправка отчета о цикле запросов в текущий чат."""
+    success, message = await send_cycle_report_manually(context.bot, update.effective_chat.id)
+    
+    if success:
+        await update.message.reply_text("✅ Отчет о цикле отправлен!")
+    else:
+        await update.message.reply_text(f"❌ {message}")
+
+
+async def send_cycle_report_to_group(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Отправляет отчет о цикле запросов в группу -5049129065."""
+    success, message = await send_cycle_report_manually(context.bot)
+    
+    if success:
+        await update.message.reply_text("✅ Отчет отправлен в группу -5049129065!")
+    else:
+        await update.message.reply_text(f"❌ {message}")
+
 def get_settings_conversation_handler():
     """Возвращает обработчик для управления настройками через диалоги."""
     return ConversationHandler(
@@ -146,4 +166,6 @@ def get_status_group_handlers():
         CommandHandler("set_status_group", set_status_group),
         CommandHandler("show_status_group", show_status_group),
         CommandHandler("test_status", test_status),
+        CommandHandler("test_cycle_report", test_cycle_report),
+        CommandHandler("send_cycle_report", send_cycle_report_to_group),
     ]
