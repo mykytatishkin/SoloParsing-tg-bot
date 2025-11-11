@@ -97,6 +97,62 @@ async def async_wait_until(target_time):
         await asyncio.sleep(min(60, delay))  # Ждать максимум 60 секунд за раз
 
 
+async def submit_order_with_retry(context_browser, url, *, max_attempts=3, base_delay=2):
+    """
+    Открывает страницу, заполняет и отправляет форму, повторяя попытку при ошибках.
+
+    Возвращает кортеж с данными (name, phone, quantity) при успешной отправке.
+    """
+    last_error = None
+
+    for attempt in range(1, max_attempts + 1):
+        page = await context_browser.new_page()
+        try:
+            await page.goto(url, wait_until="domcontentloaded", timeout=45000)
+            # Ждем, чтобы динамика успокоилась
+            try:
+                await page.wait_for_load_state("networkidle", timeout=15000)
+            except Exception:
+                # networkidle не всегда достижим, продолжаем если страница уже загрузилась
+                pass
+
+            # Дополнительные ожидания, чтобы элементы стали кликабельными
+            await page.locator("#full-name").wait_for(state="visible", timeout=20000)
+            await page.locator("#phone").wait_for(state="visible", timeout=20000)
+            await page.locator("#qty").wait_for(state="attached", timeout=20000)
+            await page.locator('button:has-text("Оформити замовлення")').wait_for(
+                state="visible", timeout=20000
+            )
+
+            name = generate_name_from_db()
+            phone = generate_phone_from_db()
+            quantity = generate_quantity()
+
+            await page.fill("#full-name", name)
+            await page.fill("#phone", phone)
+            await page.select_option("#qty", quantity)
+            await page.click('button:has-text("Оформити замовлення")')
+
+            return name, phone, quantity
+        except Exception as exc:
+            last_error = exc
+            if attempt < max_attempts:
+                # Небольшая пауза перед повторной попыткой, чтобы страница успела стабилизироваться
+                await asyncio.sleep(base_delay * attempt)
+                continue
+            raise last_error
+        finally:
+            try:
+                await page.close()
+            except Exception:
+                pass
+
+    # Если все попытки провалились, пробрасываем последнюю ошибку
+    if last_error:
+        raise last_error
+    raise RuntimeError("Не удалось выполнить запрос: неизвестная ошибка без исключения.")
+
+
 async def process_url(url, url_number, update, context, min_requests, max_requests):
     """Обработчик запросов к URL"""
     browser = None
@@ -126,9 +182,8 @@ async def process_url(url, url_number, update, context, min_requests, max_reques
             
             try:
                 context_browser = await browser.new_context()
-                page = await context_browser.new_page()
             except Exception as e:
-                error_msg = f"Ошибка создания страницы для URL #{url_number}: {str(e)}"
+                error_msg = f"Ошибка создания контекста браузера для URL #{url_number}: {str(e)}"
                 print(error_msg)
                 try:
                     await context.bot.send_message(
@@ -194,13 +249,12 @@ async def process_url(url, url_number, update, context, min_requests, max_reques
                             break
 
                         try:
-                            # Выполнение запроса
-                            await page.goto(url, timeout=30000)
-                            await page.fill('#full-name', generate_name_from_db())
-                            await page.fill('#phone', generate_phone_from_db())
-                            quantity = generate_quantity()
-                            await page.select_option('#qty', quantity)
-                            await page.click('//button[contains(text(), "Оформити замовлення")]')
+                            name, phone, quantity = await submit_order_with_retry(
+                                context_browser,
+                                url,
+                                max_attempts=3,
+                                base_delay=2,
+                            )
 
                             # Обновляем счетчик выполненных запросов
                             cycle_status.increment_completed()
@@ -214,7 +268,10 @@ async def process_url(url, url_number, update, context, min_requests, max_reques
 
                             await context.bot.send_message(
                                 chat_id=update.effective_chat.id,
-                                text=f"Request {i + 1}/{requests_count} sent for URL #{url_number} ({url})."
+                                text=(
+                                    f"Request {i + 1}/{requests_count} sent for URL #{url_number} ({url}).\n"
+                                    f"Name: {name}, Phone: {phone}, Qty: {quantity}"
+                                )
                             )
                         except Exception as e:
                             error_msg = f"Ошибка при выполнении запроса {i + 1}/{requests_count} для URL #{url_number}: {str(e)}"
